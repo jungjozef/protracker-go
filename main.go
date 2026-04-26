@@ -12,10 +12,10 @@ func main() {
 	}
 	defer f.Close()
 
-	m, err := LoadPTModule(f)
+	m, err := LoadPTModule2(f)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println(m)
+	fmt.Println(FormatModule(m))
 }

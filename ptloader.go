@@ -33,26 +33,6 @@ func (l *loader) songName() {
 }
 
 func (l *loader) nrOfPatterns() {
-	println("determining songlen")
-	l.file.Seek(950, io.SeekStart)
-	l.buf = make([]byte, 1)
-	io.ReadFull(l.file, l.buf)
-	l.module.SongLength = l.buf[0]
-	println("determining song positions")
-	l.file.Seek(952, io.SeekStart)
-	l.module.SongPositions = make([]byte, 128)
-	io.ReadFull(l.file, l.module.SongPositions)
-	fmt.Printf("songlen: %d\n", l.module.SongLength)
-	var nrOfPatterns uint8 = 0
-	for i := 0; i < 128; i++ {
-		if l.module.SongPositions[i] > nrOfPatterns {
-			nrOfPatterns = l.module.SongPositions[i]
-		}
-		fmt.Printf("pos: %d, pattern: %d\n", i, l.module.SongPositions[i])
-	}
-	l.module.NumberOfPatterns = nrOfPatterns + 1
-	fmt.Printf("nr of patterns: %d\n", l.module.NumberOfPatterns)
-
 	println("determining number of samples")
 	l.file.Seek(1080, io.SeekStart)
 	l.buf = make([]byte, 4)
@@ -68,6 +48,27 @@ func (l *loader) nrOfPatterns() {
 	if l.module.Variant != "ORIG" {
 		l.module.Variant = string(l.buf)
 	}
+
+	println("determining songlen")
+	l.file.Seek(int64(20+l.module.NumberOfSamples*30), io.SeekStart)
+	l.buf = make([]byte, 1)
+	io.ReadFull(l.file, l.buf)
+	l.module.SongLength = l.buf[0]
+	println("determining song positions")
+	l.file.Seek(int64(22+l.module.NumberOfSamples*30), io.SeekStart)
+	l.module.SongPositions = make([]byte, 128)
+	io.ReadFull(l.file, l.module.SongPositions)
+	fmt.Printf("songlen: %d\n", l.module.SongLength)
+	var nrOfPatterns uint8 = 0
+	for i := 0; i < int(l.module.SongLength); i++ {
+		if l.module.SongPositions[i] > nrOfPatterns {
+			nrOfPatterns = l.module.SongPositions[i]
+		}
+		fmt.Printf("pos: %d, pattern: %d\n", i, l.module.SongPositions[i])
+	}
+	l.module.NumberOfPatterns = nrOfPatterns + 1
+	fmt.Printf("nr of patterns: %d\n", l.module.NumberOfPatterns)
+
 }
 
 func (l *loader) readSamples() {
@@ -88,9 +89,13 @@ func (l *loader) readSamples() {
 
 func (l *loader) readPatterns() {
 	l.buf = make([]byte, 1024)
+	patternStart := 1084
+	if l.module.Variant == "ORIG" {
+		patternStart = 600
+	}
 	l.module.Patterns = make([]mod.Pattern, l.module.NumberOfPatterns)
 	for i := 0; i < int(l.module.NumberOfPatterns); i++ {
-		l.file.Seek(int64(1084+(i*1024)), io.SeekStart)
+		l.file.Seek(int64(patternStart+(i*1024)), io.SeekStart)
 		io.ReadFull(l.file, l.buf)
 		// buf now holds a pattern
 		// go row by row
@@ -121,11 +126,9 @@ func (l *loader) readSampleData() {
 			continue
 		}
 		l.file.Seek(offset+sampleDataStart, io.SeekStart)
-		l.buf = make([]byte, l.module.SampleData[i].Length)
-		io.ReadFull(l.file, l.buf)
+		l.module.SampleData[i].Data = make([]byte, l.module.SampleData[i].Length)
+		io.ReadFull(l.file, l.module.SampleData[i].Data)
 		offset += int64(l.module.SampleData[i].Length)
-		l.module.SampleData[i].Data = make([]byte, len(l.buf))
-		copy(l.module.SampleData[i].Data, l.buf)
 	}
 }
 

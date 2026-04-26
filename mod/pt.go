@@ -62,6 +62,9 @@ func (n *Note) NoteToString() string {
 		}
 	}
 	octave--
+	if octave < 0 {
+		return "---"
+	}
 	// Now find the note within that octave
 	offset := octave * 12
 	position := 0
