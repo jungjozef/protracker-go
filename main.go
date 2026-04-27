@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	f, err := os.Open("h0ffman_-_drop_the_panic.mod")
+	f, err := os.Open("hoffman_-_pattern_skank.mod")
 	if err != nil {
 		panic(err)
 	}

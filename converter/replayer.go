@@ -37,8 +37,10 @@ type voiceState struct {
 	active     bool    // voice producing output
 
 	// portamento
-	portaTarget uint16
-	portaSpeed  uint8
+	portaTarget   uint16
+	portaSpeed    uint8 // 3xx tone porta speed
+	portaUpSpeed  uint8 // 1xx memory
+	portaDownSpeed uint8 // 2xx memory
 
 	// vibrato
 	vibratoPos   uint8
@@ -52,8 +54,7 @@ type voiceState struct {
 	// sample offset (9xx)
 	sampleOffset uint16
 
-	// note cut / note delay (Exx)
-	cutTick   int // ECx: cut volume on this tick (-1 = inactive)
+	// note delay (EDx)
 	delayTick int // EDx: trigger note on this tick (-1 = inactive)
 
 	// saved note for note-delay
@@ -108,7 +109,6 @@ func newReplayerState(m *mod.PTModule) *replayerState {
 		jumpPos:         -1,
 	}
 	for i := range r.voices {
-		r.voices[i].cutTick = -1
 		r.voices[i].delayTick = -1
 	}
 	r.loopCounter = -1
@@ -255,9 +255,13 @@ func readRow(r *replayerState) {
 		n := row[ch]
 		v := &r.voices[ch]
 		// Reset per-row transient state
-		v.cutTick = -1
 		v.delayTick = -1
 		v.pendingNote = nil
+
+		// Pre-apply 9xx so triggerNote sees the correct sample offset.
+		if n.EffectCommand == 0x09 && n.EffectData != 0 {
+			v.sampleOffset = uint16(n.EffectData) * 256
+		}
 
 		if n.EffectCommand == 0x0E && (n.EffectData>>4) == 0x0D {
 			// Note delay: save note, will trigger on the right tick
