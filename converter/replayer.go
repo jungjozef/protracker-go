@@ -4,6 +4,8 @@ import "protracker-go/mod"
 
 const (
 	paulaPalClk  = 3_546_895.0 // Amiga PAL master clock Hz
+	ciaPalClk    = 709_379.0   // Amiga PAL CIA clock Hz
+	ciaPalBase   = 1_773_447   // integer: ciaPalClk * 2.5, used for BPM→period
 	outputRate   = 44_100.0    // render/WAV sample rate Hz
 	defaultBPM   = 125
 	defaultSpeed = 6
@@ -76,7 +78,9 @@ type replayerState struct {
 	row  int // row within current pattern (0 … 63)
 	pos  int // position in song order (0 … SongLength-1)
 
-	tickSamples int // output samples produced per tick
+	// CIA-precise tick timing: non-integer samples/tick accumulated fractionally.
+	tickSampleFloat float64 // CIA-derived samples per tick (float)
+	tickSampleAccum float64 // fractional carry between ticks
 
 	voices [4]voiceState
 
@@ -97,11 +101,11 @@ type replayerState struct {
 
 func newReplayerState(m *mod.PTModule) *replayerState {
 	r := &replayerState{
-		module:      m,
-		speed:       defaultSpeed,
-		bpm:         defaultBPM,
-		tickSamples: calcTickSamples(defaultBPM),
-		jumpPos:     -1,
+		module:          m,
+		speed:           defaultSpeed,
+		bpm:             defaultBPM,
+		tickSampleFloat: calcTickSampleFloat(defaultBPM),
+		jumpPos:         -1,
 	}
 	for i := range r.voices {
 		r.voices[i].cutTick = -1
@@ -111,10 +115,22 @@ func newReplayerState(m *mod.PTModule) *replayerState {
 	return r
 }
 
-// calcTickSamples returns the number of output samples in one tick at the given BPM.
-// Formula: outputRate * 60 / (bpm * 24)  — equivalent to outputRate / (bpm * 0.4)
+// calcTickSamples returns an integer approximation of samples/tick.
+// Used only in tests for expected-duration math.
 func calcTickSamples(bpm int) int {
 	return int(outputRate*60) / (bpm * 24)
+}
+
+// calcTickSampleFloat returns the CIA-precise (fractional) samples per tick.
+//
+// The Amiga CIA chip runs at 709,379 Hz (PAL). BPM is converted to a CIA
+// timer period via: ciaPeriod = 1,773,447 / bpm  (integer, matches hardware).
+// The actual tick frequency is: ciaPalClk / ciaPeriod.
+// Samples per tick = outputRate / tickFreq.
+func calcTickSampleFloat(bpm int) float64 {
+	ciaPeriod := ciaPalBase / bpm // integer division matches Amiga hardware
+	tickFreq := ciaPalClk / float64(ciaPeriod)
+	return outputRate / tickFreq
 }
 
 // calcDelta converts a Paula period value to a per-sample phase increment.
@@ -149,9 +165,14 @@ func renderTick(r *replayerState) []float64 {
 		}
 	}
 
-	out := make([]float64, r.tickSamples*2) // stereo interleaved
+	// CIA-precise tick length: accumulate fractional samples and extract integer count.
+	r.tickSampleAccum += r.tickSampleFloat
+	n := int(r.tickSampleAccum)
+	r.tickSampleAccum -= float64(n)
 
-	for i := 0; i < r.tickSamples; i++ {
+	out := make([]float64, n*2) // stereo interleaved
+
+	for i := 0; i < n; i++ {
 		var left, right float64
 
 		for ch := 0; ch < 4; ch++ {

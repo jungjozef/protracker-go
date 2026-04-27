@@ -69,7 +69,8 @@ func applyEffectTick0(v *voiceState, n mod.Note, r *replayerState) {
 			}
 		} else {
 			r.bpm = int(data)
-			r.tickSamples = calcTickSamples(r.bpm)
+			r.tickSampleFloat = calcTickSampleFloat(r.bpm)
+			// Accumulator carries over — no reset, avoids a sample-count glitch
 		}
 
 	case 0x0E: // Extended effects
