@@ -1,9 +1,9 @@
 package mod
 
 import (
-	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type PTModule struct {
@@ -17,11 +17,96 @@ type PTModule struct {
 	Patterns         []Pattern
 }
 
+func (pt *PTModule) PositionAt(dur time.Duration) (*Pattern, uint8, error) {
+	const (
+		ciaPalBase   = 1_773_447
+		ciaPalClk    = 709_379.0
+		defaultBPM   = 125
+		defaultSpeed = 6
+	)
+
+	tickDur := func(bpm int) time.Duration {
+		ciaPeriod := ciaPalBase / bpm
+		tickFreq := ciaPalClk / float64(ciaPeriod)
+		return time.Duration(float64(time.Second) / tickFreq)
+	}
+
+	speed, bpm := defaultSpeed, defaultBPM
+	pos, row := 0, 0
+	var elapsed time.Duration
+
+	for pos < int(pt.SongLength) {
+		patIdx := int(pt.SongPositions[pos])
+		if patIdx >= len(pt.Patterns) {
+			return nil, 0, fmt.Errorf("invalid pattern index %d at song position %d", patIdx, pos)
+		}
+		pat := &pt.Patterns[patIdx]
+
+		rowDur := time.Duration(speed) * tickDur(bpm)
+		if elapsed+rowDur > dur {
+			return pat, uint8(row), nil
+		}
+		elapsed += rowDur
+
+		patternBreak := false
+		jumpPos := -1
+		breakRow := 0
+
+		for ch := 0; ch < 4; ch++ {
+			n := pat.Data[row][ch]
+			switch n.EffectCommand {
+			case 0x0F:
+				if n.EffectData < 0x20 {
+					if n.EffectData > 0 {
+						speed = int(n.EffectData)
+					}
+				} else {
+					bpm = int(n.EffectData)
+				}
+			case 0x0B:
+				jp := int(n.EffectData)
+				if jp >= int(pt.SongLength) {
+					jp = int(pt.SongLength) - 1
+				}
+				jumpPos = jp
+				patternBreak = true
+				breakRow = 0
+			case 0x0D:
+				hi := n.EffectData >> 4
+				lo := n.EffectData & 0x0F
+				r := int(hi)*10 + int(lo)
+				if r > 63 {
+					r = 0
+				}
+				breakRow = r
+				patternBreak = true
+			}
+		}
+
+		if patternBreak {
+			if jumpPos >= 0 {
+				pos = jumpPos
+			} else {
+				pos++
+			}
+			row = breakRow
+		} else {
+			row++
+			if row >= 64 {
+				row = 0
+				pos++
+			}
+		}
+	}
+
+	return nil, 0, fmt.Errorf("duration %v exceeds song length", dur)
+}
+
 type Pattern struct {
 	Data [64]Row
 }
 
-var periodLookup = []uint16{
+var PeriodLookup = []uint16{
 	//C   C#    D     D#    E     F     F#    G     G#    A     A#   B
 	1712, 1616, 1524, 1440, 1356, 1280, 1208, 1140, 1076, 1016, 960, 907, // 0ctave 0
 	856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453, // 0ctave 1
@@ -54,8 +139,8 @@ func (n *Note) NoteToString() string {
 	}
 	// First find the octave
 	octave := 0
-	for i := 0; i < len(periodLookup); i += 12 {
-		if n.Value > periodLookup[i] {
+	for i := 0; i < len(PeriodLookup); i += 12 {
+		if n.Value > PeriodLookup[i] {
 			break
 		} else {
 			octave++
@@ -69,7 +154,7 @@ func (n *Note) NoteToString() string {
 	offset := octave * 12
 	position := 0
 	for i := offset; i < offset+12; i++ {
-		if periodLookup[i] == n.Value {
+		if PeriodLookup[i] == n.Value {
 			position = i
 			break
 		}
@@ -90,8 +175,8 @@ func (n *Note) NoteToString() string {
 }
 
 func periodToString(periodPos int, octave int) (string, error) {
-	if (periodPos < 0) || (periodPos > len(periodLookup)) {
-		return "", errors.New("invalid period to convert to string")
+	if (periodPos < 0) || (periodPos > len(PeriodLookup)) {
+		return "", fmt.Errorf("invalid period to convert to string")
 	}
 
 	// Get the note pitch

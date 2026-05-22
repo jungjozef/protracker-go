@@ -37,9 +37,9 @@ type voiceState struct {
 	active     bool    // voice producing output
 
 	// portamento
-	portaTarget   uint16
-	portaSpeed    uint8 // 3xx tone porta speed
-	portaUpSpeed  uint8 // 1xx memory
+	portaTarget    uint16
+	portaSpeed     uint8 // 3xx tone porta speed
+	portaUpSpeed   uint8 // 1xx memory
 	portaDownSpeed uint8 // 2xx memory
 
 	// vibrato
@@ -265,8 +265,7 @@ func readRow(r *replayerState) {
 
 		if n.EffectCommand == 0x0E && (n.EffectData>>4) == 0x0D {
 			// Note delay: save note, will trigger on the right tick
-			noteCopy := n
-			v.pendingNote = &noteCopy
+			v.pendingNote = new(n)
 			applyEffectTick0(v, n, r)
 		} else {
 			triggerNote(v, n, r.module.SampleData)
@@ -332,7 +331,11 @@ func triggerNote(v *voiceState, n mod.Note, samples []mod.SampleData) {
 	if n.SampleNumber > 0 && int(n.SampleNumber) <= len(samples) {
 		s := &samples[n.SampleNumber-1]
 		v.sample = s
-		v.volume = float64(s.Volume) / float64(maxVolume)
+		vol := s.Volume
+		if vol > maxVolume {
+			vol = maxVolume
+		}
+		v.volume = float64(vol) / float64(maxVolume)
 		// RepeatLength <= 2 means no real loop in Amiga convention
 		v.repeatActive = s.RepeatLength > 2
 	}

@@ -210,17 +210,23 @@ func applyEffectTickN(v *voiceState, n mod.Note, tick int) {
 
 	case 0x05: // Tone portamento + volume slide
 		tonePortamento(v)
-		volumeSlide(v, hi)
+		if data != 0 {
+			volumeSlide(v, hi)
+		}
 
 	case 0x06: // Vibrato + volume slide
 		vibrato(v)
-		volumeSlide(v, hi)
+		if data != 0 {
+			volumeSlide(v, hi)
+		}
 
-	case 0x0A: // Volume slide
-		volumeSlide(v, hi)
+	case 0x0A: // Volume slide — A00 = no slide (no memory in PT2)
+		if data != 0 {
+			volumeSlide(v, hi)
+		}
 
 	case 0x0E: // Extended tick-N effects
-		applyExtendedTickN(v, hi, lo, tick, n)
+		applyExtendedTickN(v, hi, lo, tick)
 	}
 }
 
@@ -276,7 +282,7 @@ func volumeSlide(v *voiceState, hi uint8) {
 	}
 }
 
-func applyExtendedTickN(v *voiceState, hi, lo uint8, tick int, n mod.Note) {
+func applyExtendedTickN(v *voiceState, hi, lo uint8, tick int) {
 	switch hi {
 	case 0x09: // E9x — retrigger every x ticks
 		if lo > 0 && tick%int(lo) == 0 {
@@ -289,11 +295,7 @@ func applyExtendedTickN(v *voiceState, hi, lo uint8, tick int, n mod.Note) {
 			v.volume = 0
 		}
 
-	case 0x0D: // EDx — note delay: trigger on tick x
-		if tick == int(lo) {
-			triggerNote(v, n, nil) // sample already resolved at tick 0
-			v.active = v.sample != nil && len(v.sample.Data) > 0
-		}
+		// EDx: handled entirely in renderTick (has access to module samples)
 	}
 }
 
@@ -303,23 +305,14 @@ func semitoneUp(basePeriod uint16, semitones uint8) uint16 {
 	if semitones == 0 {
 		return basePeriod
 	}
-	for i, p := range periodTable {
+	for i, p := range mod.PeriodLookup {
 		if p == basePeriod {
 			idx := i + int(semitones)
-			if idx >= len(periodTable) {
-				idx = len(periodTable) - 1
+			if idx >= len(mod.PeriodLookup) {
+				idx = len(mod.PeriodLookup) - 1
 			}
-			return periodTable[idx]
+			return mod.PeriodLookup[idx]
 		}
 	}
 	return basePeriod
-}
-
-// periodTable mirrors mod.periodLookup for use within this package.
-var periodTable = []uint16{
-	1712, 1616, 1524, 1440, 1356, 1280, 1208, 1140, 1076, 1016, 960, 907,
-	856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453,
-	428, 404, 381, 360, 339, 320, 302, 285, 269, 254, 240, 226,
-	214, 202, 190, 180, 170, 160, 151, 143, 135, 127, 120, 113,
-	107, 101, 95, 90, 85, 80, 75, 71, 67, 63, 60, 56,
 }
