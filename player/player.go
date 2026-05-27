@@ -1,11 +1,11 @@
-package replayer
+package player
 
 import (
 	"encoding/binary"
 	"io"
 	"time"
 
-	"protracker-go/converter"
+	"protracker-go/engine"
 	"protracker-go/mod"
 
 	"github.com/ebitengine/oto/v3"
@@ -33,14 +33,14 @@ func (m *ModPlayer) Init() {
 // ModReader wraps ReplayerState as an io.Reader for oto.
 // oto calls Read() on its own goroutine; we render ticks on demand.
 type ModReader struct {
-	replayerState *converter.ReplayerState
+	replayerState *engine.ReplayerState
 	buf           []float64 // rendered samples not yet consumed (interleaved L,R float64)
 	stereoSep     int       // 0 = mono/full-mix, 100 = full Amiga hard panning
 }
 
 func NewModReader(m *mod.PTModule, stereoSep int) *ModReader {
 	return &ModReader{
-		replayerState: converter.NewReplayerState(m),
+		replayerState: engine.NewReplayerState(m),
 		stereoSep:     stereoSep,
 	}
 }
@@ -59,7 +59,7 @@ func (m *ModReader) Read(p []byte) (int, error) {
 		if m.replayerState.Done {
 			break
 		}
-		m.buf = append(m.buf, converter.RenderTick(m.replayerState)...)
+		m.buf = append(m.buf, engine.RenderTick(m.replayerState)...)
 	}
 
 	// How many complete stereo frames are ready?
@@ -81,8 +81,7 @@ func (m *ModReader) Read(p []byte) (int, error) {
 	return need * 4, nil
 }
 
-// applyMix mirrors converter.applyMix: normalises 4-voice sum and applies
-// mid/side stereo separation.
+// applyMix normalises 4-voice sum and applies mid/side stereo separation.
 //
 //	sep=0   → pure mono (mid only, fed to both channels)
 //	sep=100 → full Amiga hard panning (channels 0,2 left; 1,3 right)

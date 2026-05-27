@@ -5,23 +5,24 @@ import (
 	"fmt"
 	"os"
 
+	"protracker-go/converter"
 	"protracker-go/loader"
-	"replayer"
+
+	"protracker-player"
 )
 
 func main() {
-	inputFilename := flag.String("input", "", "Input filename")
-	outputFilename := flag.String("output", "", "Output filename")
-	stereoSep := flag.Int("stereo-sep", 30, "Stereo separator")
+	inputFilename := flag.String("input", "", "Input MOD filename")
+	outputFilename := flag.String("output", "", "Output WAV filename (convert mode only; default: input + .wav)")
+	stereoSep := flag.Int("stereo-sep", 30, "Stereo separation 0–100 (0=mono mix, 100=full Amiga hard pan)")
+	mode := flag.String("mode", "play", "Mode: play or convert")
 	flag.Parse()
+
 	if *inputFilename == "" {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
-	if *outputFilename == "" {
-		*outputFilename = *inputFilename + ".wav"
-	}
-	println(fmt.Sprintf("Input filename: %s, output filename: %s, stereo sep %d", *inputFilename, *outputFilename, *stereoSep))
+
 	f, err := os.Open(*inputFilename)
 	if err != nil {
 		panic(err)
@@ -33,23 +34,36 @@ func main() {
 		panic(err)
 	}
 
-	// fmt.Println(loader.FormatModule(m))
-	//
-	//c := converter.NewMod2Wav(converter.Stereo, *stereoSep)
-	//_, err = c.Convert(m)
-	//if err != nil {
-	//	panic(err)
-	//
-	//}
-	//outf, err := os.OpenFile(*outputFilename, os.O_WRONLY|os.O_CREATE, 0666)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//defer outf.Close()
-	//outf.Write(wav)
+	switch *mode {
+	case "play":
+		fmt.Printf("Playing: %s  stereo-sep=%d\n", *inputFilename, *stereoSep)
+		rp := player.ModPlayer{}
+		rp.Init()
+		rp.Play(m, *stereoSep)
+		rp.Wait()
 
-	rp := replayer.ModPlayer{}
-	rp.Init()
-	rp.Play(m, *stereoSep)
-	rp.Wait() // blocks until song ends; also keeps player alive (prevents GC)
+	case "convert":
+		if *outputFilename == "" {
+			*outputFilename = *inputFilename + ".wav"
+		}
+		fmt.Printf("Converting: %s → %s  stereo-sep=%d\n", *inputFilename, *outputFilename, *stereoSep)
+		c := converter.NewMod2Wav(converter.Stereo, *stereoSep)
+		wav, err := c.Convert(m)
+		if err != nil {
+			panic(err)
+		}
+		outf, err := os.OpenFile(*outputFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+		if err != nil {
+			panic(err)
+		}
+		defer outf.Close()
+		if _, err := outf.Write(wav); err != nil {
+			panic(err)
+		}
+		fmt.Printf("Written %d bytes to %s\n", len(wav), *outputFilename)
+
+	default:
+		fmt.Fprintf(os.Stderr, "unknown mode %q — use play or convert\n", *mode)
+		os.Exit(1)
+	}
 }

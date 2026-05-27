@@ -6,6 +6,7 @@ import (
 	"math"
 	"testing"
 
+	"protracker-go/engine"
 	"protracker-go/mod"
 )
 
@@ -96,7 +97,7 @@ func TestConvert_Duration(t *testing.T) {
 
 	// Expected: 1 position × 64 rows × 6 ticks × 882 samples × 2 ch × 2 bytes = 1,354,752 bytes + 44 header
 	// samplesPerTick = 44100*60/(125*24) = 882
-	expectedSamples := 64 * defaultSpeed * calcTickSamples(defaultBPM)
+	expectedSamples := 64 * engine.DefaultSpeed * engine.CalcTickSamples(engine.DefaultBPM)
 	expectedBytes := 44 + expectedSamples*2*2 // stereo, 16-bit
 
 	// Allow 1% tolerance for rounding
@@ -171,8 +172,8 @@ func TestE6x_PatternLoop(t *testing.T) {
 
 	// E62 = 2 extra replays of the 2-row loop body (rows 0+1).
 	// 2 replays × 2 rows × 6 ticks/row = 24 extra ticks.
-	extraTicks := 2 * 2 * defaultSpeed
-	extraBytes := extraTicks * calcTickSamples(defaultBPM) * 2 * 2
+	extraTicks := 2 * 2 * engine.DefaultSpeed
+	extraBytes := extraTicks * engine.CalcTickSamples(engine.DefaultBPM) * 2 * 2
 	diff := len(wavLoop) - len(wavBase)
 	tolerance := extraBytes / 20 // 5%
 

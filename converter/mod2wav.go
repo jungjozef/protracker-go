@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"math"
 
+	"protracker-go/engine"
 	"protracker-go/mod"
 )
 
@@ -29,15 +30,12 @@ func NewMod2Wav(chNum ChannelNum, stereoSep int) *Mod2Wav {
 
 // Convert renders a PTModule to WAV bytes (44100 Hz, 16-bit PCM).
 func (m *Mod2Wav) Convert(module *mod.PTModule) ([]byte, error) {
-	r := NewReplayerState(module)
+	r := engine.NewReplayerState(module)
 
-	// Pre-allocate generously: estimate duration
-	// Max: 128 positions × 64 rows × 6 ticks × 882 samples = ~43M samples
-	// Typical: much less. Grow dynamically.
 	var pcm []int16
 
 	for !r.Done {
-		floats := RenderTick(r)
+		floats := engine.RenderTick(r)
 		// floats is stereo interleaved: [L0, R0, L1, R1, ...]
 		for i := 0; i < len(floats); i += 2 {
 			l, ri := applyMix(floats[i], floats[i+1], m.stereoSeparation, m.numberOfChannels)
@@ -48,7 +46,7 @@ func (m *Mod2Wav) Convert(module *mod.PTModule) ([]byte, error) {
 		}
 	}
 
-	return encodeWAV(pcm, m.numberOfChannels, int(outputRate)), nil
+	return encodeWAV(pcm, m.numberOfChannels, int(engine.OutputRate)), nil
 }
 
 // applyMix applies stereo separation and returns (left, right) normalised floats.
