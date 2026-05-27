@@ -8,7 +8,7 @@ Output: 44100 Hz, 16-bit PCM, mono or stereo with configurable separation.
 ```
 converter/
   mod2wav.go      — Convert(), WAV encoder, mixer (exists, has skeleton)
-  replayer.go     — new: replayerState, voiceState, tick engine
+  replayer.go     — new: ReplayerState, voiceState, tick engine
   effects.go      — new: per-effect update functions
 ```
 
@@ -26,11 +26,11 @@ File: `converter/replayer.go`
   vibratoPos (uint8), vibratoSpeed (uint8), vibratoDepth (uint8),
   arpeggioBaseNote (uint16), sampleOffset (uint16),
   noteCut (bool), noteDelay (uint8), pendingNote (*mod.Note)
-- `replayerState` struct: module ptr, speed, bpm, tick, row, pos,
+- `ReplayerState` struct: module ptr, speed, bpm, tick, row, pos,
   tickSamples (int), voices [4]voiceState,
   patternDelay (int),
   patternBreak (bool), breakRow (int), jumpPos (int), done (bool)
-- `newReplayerState(m *mod.PTModule) *replayerState` constructor: sets defaults
+- `NewReplayerState(m *mod.PTModule) *ReplayerState` constructor: sets defaults
 
 ### Step 2 — Tick sample count + period→delta helpers
 File: `converter/replayer.go`
@@ -82,16 +82,16 @@ Implement for tick > 0:
 ### Step 6 — Row reader + pattern sequencer
 File: `converter/replayer.go`
 
-- `readRow(r *replayerState)`: reads current row from current pattern,
+- `readRow(r *ReplayerState)`: reads current row from current pattern,
   calls triggerNote + tick-0 effects for each channel
-- `advanceRow(r *replayerState)`: increments row, handles pattern break/jump,
+- `advanceRow(r *ReplayerState)`: increments row, handles pattern break/jump,
   wraps at SongLength → sets r.done = true
 - `applyPatternDelay`: if E.Dx set, repeat current row N extra times
 
 ### Step 7 — Per-tick render loop
 File: `converter/replayer.go`
 
-- `renderTick(r *replayerState) []float64`
+- `RenderTick(r *ReplayerState) []float64`
   - if tick==0: call readRow
   - call updateEffects (tick>0 handlers) for each channel
   - inner loop for tickSamples iterations:
@@ -127,10 +127,10 @@ File: `converter/mod2wav.go`
 
 ```go
 func (m *Mod2Wav) Convert(module *mod.PTModule) ([]byte, error) {
-    r := newReplayerState(module)
+    r := NewReplayerState(module)
     var pcm []int16
     for !r.done {
-        floats := renderTick(r)
+        floats := RenderTick(r)
         for i := 0; i < len(floats); i += 2 {
             l, ri := mix(floats[i], floats[i+1], m.stereoSeparation, m.numberOfChannels)
             pcm = append(pcm, floatToInt16(l))

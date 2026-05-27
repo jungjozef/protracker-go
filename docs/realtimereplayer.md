@@ -103,7 +103,7 @@ sample data (int8[])
 → OS sends buffer to DAC                                                                                                                                                                                              
 → DAC → speaker → air → ear
 
-That's the whole thing. Your renderTick() already does all of it correctly.
+That's the whole thing. Your RenderTick() already does all of it correctly.
 
 ❯ I know the physics of audio. I need to learn specifically how the audio replayer should work on a computer.
 
@@ -164,11 +164,11 @@ Audio thread reads →→→→→→
 What your replayer goroutine does
 
 for !r.done {                                                                                                                                                                                                         
-samples := renderTick(r)        // produce chunk (variable size!)                                                                                                                                                 
+samples := RenderTick(r)        // produce chunk (variable size!)                                                                                                                                                 
 player.Write(samplesToBytes(samples))  // blocks when buffer full                                                                                                                                                   
 }
 
-renderTick already returns variable-length slices (CIA accumulator). That's fine — Write handles arbitrary sizes.
+RenderTick already returns variable-length slices (CIA accumulator). That's fine — Write handles arbitrary sizes.
 
 oto specifically (simplest Go option)
 
@@ -207,7 +207,7 @@ Buffer = 4096 samples → 4096/44100 ≈ 93ms. You hear note 93ms after replayer
 Thread model for mod player
 
 main goroutine:   UI, input, load module                                                                                                                                                                              
-replayer goroutine: renderTick loop, writes to oto player                                                                                                                                                               
+replayer goroutine: RenderTick loop, writes to oto player                                                                                                                                                               
 oto internal goroutine: calls Read(), sends to Core Audio                                                                                                                                                               
 Core Audio thread: sends to DAC (you never touch this)
 
@@ -217,12 +217,12 @@ Practical starting point
 
 import "github.com/ebitengine/oto/v3"
 
-type ModReader struct { r *replayerState; buf []float64 }
+type ModReader struct { r *ReplayerState; buf []float64 }
 
 func (m *ModReader) Read(p []byte) (int, error) {                                                                                                                                                                       
 need := len(p) / 4  // 2 channels × 2 bytes (int16)                                                                                                                                                               
 for len(m.buf) < need*2 {                                                                                                                                                                                           
-m.buf = append(m.buf, renderTick(m.r)...)
+m.buf = append(m.buf, RenderTick(m.r)...)
 }                                                                                                                                                                                                                   
 for i := 0; i < need; i++ {
 l := f64ToI16(m.buf[i*2])                                                                                                                                                                                       
@@ -234,5 +234,5 @@ m.buf = m.buf[need*2:]
 return need * 4, nil                                                                                                                                                                                                
 }
 
-Oto calls Read → you call renderTick → samples flow out. Done.                                                                                                                                                          
+Oto calls Read → you call RenderTick → samples flow out. Done.                                                                                                                                                          
            

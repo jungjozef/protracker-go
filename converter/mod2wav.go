@@ -29,15 +29,15 @@ func NewMod2Wav(chNum ChannelNum, stereoSep int) *Mod2Wav {
 
 // Convert renders a PTModule to WAV bytes (44100 Hz, 16-bit PCM).
 func (m *Mod2Wav) Convert(module *mod.PTModule) ([]byte, error) {
-	r := newReplayerState(module)
+	r := NewReplayerState(module)
 
 	// Pre-allocate generously: estimate duration
 	// Max: 128 positions × 64 rows × 6 ticks × 882 samples = ~43M samples
 	// Typical: much less. Grow dynamically.
 	var pcm []int16
 
-	for !r.done {
-		floats := renderTick(r)
+	for !r.Done {
+		floats := RenderTick(r)
 		// floats is stereo interleaved: [L0, R0, L1, R1, ...]
 		for i := 0; i < len(floats); i += 2 {
 			l, ri := applyMix(floats[i], floats[i+1], m.stereoSeparation, m.numberOfChannels)
@@ -93,8 +93,8 @@ func encodeWAV(samples []int16, ch ChannelNum, sampleRate int) []byte {
 
 	// fmt sub-chunk
 	buf.WriteString("fmt ")
-	binary.Write(buf, binary.LittleEndian, uint32(16))          // sub-chunk size
-	binary.Write(buf, binary.LittleEndian, uint16(1))           // PCM format
+	binary.Write(buf, binary.LittleEndian, uint32(16)) // sub-chunk size
+	binary.Write(buf, binary.LittleEndian, uint16(1))  // PCM format
 	binary.Write(buf, binary.LittleEndian, numChannels)
 	binary.Write(buf, binary.LittleEndian, uint32(sampleRate))
 	binary.Write(buf, binary.LittleEndian, byteRate)

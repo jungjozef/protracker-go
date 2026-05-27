@@ -68,8 +68,8 @@ type voiceState struct {
 	repeatActive bool
 }
 
-// replayerState is the full state of the offline renderer.
-type replayerState struct {
+// ReplayerState is the full state of the offline renderer.
+type ReplayerState struct {
 	module *mod.PTModule
 
 	speed int // ticks per row
@@ -97,11 +97,11 @@ type replayerState struct {
 	loopCounter     int  // -1 = inactive; ≥0 = remaining iterations
 	patternLoopJump bool // signals advanceRow to jump to loopStartRow
 
-	done bool
+	Done bool
 }
 
-func newReplayerState(m *mod.PTModule) *replayerState {
-	r := &replayerState{
+func NewReplayerState(m *mod.PTModule) *ReplayerState {
+	r := &ReplayerState{
 		module:          m,
 		speed:           defaultSpeed,
 		bpm:             defaultBPM,
@@ -141,9 +141,9 @@ func calcDelta(period uint16) float64 {
 	return paulaPalClk / (float64(period) * outputRate)
 }
 
-// renderTick produces one tick's worth of stereo float64 samples (interleaved L,R).
+// RenderTick produces one tick's worth of stereo float64 samples (interleaved L,R).
 // It reads a new row on tick 0, updates effects on tick>0, then mixes all voices.
-func renderTick(r *replayerState) []float64 {
+func RenderTick(r *ReplayerState) []float64 {
 	patIdx := int(r.module.SongPositions[r.pos])
 	var row [4]mod.Note
 	if patIdx < len(r.module.Patterns) {
@@ -245,7 +245,7 @@ func clampPeriod(p uint16) uint16 {
 
 // readRow reads the current row from the current pattern and triggers
 // notes + tick-0 effects for all four channels.
-func readRow(r *replayerState) {
+func readRow(r *ReplayerState) {
 	patIdx := int(r.module.SongPositions[r.pos])
 	if patIdx >= len(r.module.Patterns) {
 		return
@@ -265,7 +265,7 @@ func readRow(r *replayerState) {
 
 		if n.EffectCommand == 0x0E && (n.EffectData>>4) == 0x0D {
 			// Note delay: save note, will trigger on the right tick
-			v.pendingNote = new(n)
+			v.pendingNote = &n
 			applyEffectTick0(v, n, r)
 		} else {
 			triggerNote(v, n, r.module.SampleData)
@@ -275,7 +275,7 @@ func readRow(r *replayerState) {
 }
 
 // advanceRow moves to the next row, handling pattern loop, break/jump and song end.
-func advanceRow(r *replayerState) {
+func advanceRow(r *ReplayerState) {
 	if r.patternDelay > 0 {
 		r.patternDelay--
 		return // repeat current row without advancing
@@ -313,7 +313,7 @@ func advanceRow(r *replayerState) {
 	}
 
 	if r.pos >= int(r.module.SongLength) {
-		r.done = true
+		r.Done = true
 	}
 }
 

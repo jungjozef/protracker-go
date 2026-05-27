@@ -4,7 +4,7 @@ import "protracker-go/mod"
 
 // applyEffectTick0 handles effects that take action on tick 0 (note row read).
 // Called after triggerNote so volume/period from the note are already set.
-func applyEffectTick0(v *voiceState, n mod.Note, r *replayerState) {
+func applyEffectTick0(v *voiceState, n mod.Note, r *ReplayerState) {
 	cmd := n.EffectCommand
 	data := n.EffectData
 	hi := data >> 4
@@ -96,7 +96,7 @@ func applyEffectTick0(v *voiceState, n mod.Note, r *replayerState) {
 	}
 }
 
-func applyExtendedTick0(v *voiceState, hi, lo uint8, r *replayerState) {
+func applyExtendedTick0(v *voiceState, hi, lo uint8, r *ReplayerState) {
 	switch hi {
 	case 0x01: // E1x — fine portamento up (applied once, tick 0 only)
 		p := int(v.period) - int(lo)
@@ -145,7 +145,7 @@ func applyExtendedTick0(v *voiceState, hi, lo uint8, r *replayerState) {
 
 	case 0x0C: // ECx — note cut on tick x (checked in applyEffectTickN)
 
-	case 0x0D: // EDx — note delay (checked in renderTick + applyEffectTickN)
+	case 0x0D: // EDx — note delay (checked in RenderTick + applyEffectTickN)
 		v.delayTick = int(lo)
 		v.active = false
 
@@ -295,7 +295,7 @@ func applyExtendedTickN(v *voiceState, hi, lo uint8, tick int) {
 			v.volume = 0
 		}
 
-		// EDx: handled entirely in renderTick (has access to module samples)
+		// EDx: handled entirely in RenderTick (has access to module samples)
 	}
 }
 
