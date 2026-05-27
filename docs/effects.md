@@ -2,7 +2,7 @@
 
 Implementation lives in `engine/effects.go`.
 
-## Implemented
+## Effects
 
 | Effect | Name | Tick-0 | Tick-N |
 |--------|------|--------|--------|
@@ -29,8 +29,14 @@ Implementation lives in `engine/effects.go`.
 | `EEx`  | Pattern delay | repeat row x extra times | — |
 | `Fxx`  | Set speed/BPM | xx<0x20 → speed; else BPM | — |
 
+## Audio quality features
+
+| Feature | Where | Notes |
+|---------|-------|-------|
+| Fine-tune | `engine/replayer.go` — `applyFineTune()` | Signed 4-bit per sample; ±1/8 semitone steps; applied at note trigger and portamento target |
+| Linear interpolation | `engine/replayer.go` — `RenderTick()` mix loop | Lerp between adjacent samples using fractional phase; reduces aliasing at high pitch (delta > 1) |
+| Low-pass filter | `engine/replayer.go` — `RenderTick()` | One-pole IIR, ~4.4 kHz cutoff; `ReplayerState.FilterEnabled`; off by default |
+
 ## Not implemented
 
-- BLEP anti-aliasing (band-limited step)
-- Amiga low-pass filter emulation
-- Fine-tune (sample `FineTune` field parsed but not applied to delta)
+- BLEP anti-aliasing (band-limited step) — removes click artifacts at sample loop/retrigger discontinuities

@@ -19,18 +19,21 @@ const (
 type Mod2Wav struct {
 	numberOfChannels ChannelNum // 1 - mono, 2 stereo
 	stereoSeparation int        // 0 = full mix, 100 = fully separated
+	filter           bool       // Amiga low-pass filter
 }
 
-func NewMod2Wav(chNum ChannelNum, stereoSep int) *Mod2Wav {
+func NewMod2Wav(chNum ChannelNum, stereoSep int, filter bool) *Mod2Wav {
 	return &Mod2Wav{
 		numberOfChannels: chNum,
 		stereoSeparation: stereoSep,
+		filter:           filter,
 	}
 }
 
 // Convert renders a PTModule to WAV bytes (44100 Hz, 16-bit PCM).
 func (m *Mod2Wav) Convert(module *mod.PTModule) ([]byte, error) {
 	r := engine.NewReplayerState(module)
+	r.FilterEnabled = m.filter
 
 	var pcm []int16
 

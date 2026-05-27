@@ -38,9 +38,11 @@ type ModReader struct {
 	stereoSep     int       // 0 = mono/full-mix, 100 = full Amiga hard panning
 }
 
-func NewModReader(m *mod.PTModule, stereoSep int) *ModReader {
+func NewModReader(m *mod.PTModule, stereoSep int, filter bool) *ModReader {
+	r := engine.NewReplayerState(m)
+	r.FilterEnabled = filter
 	return &ModReader{
-		replayerState: engine.NewReplayerState(m),
+		replayerState: r,
 		stereoSep:     stereoSep,
 	}
 }
@@ -95,8 +97,8 @@ func applyMix(left, right float64, sep int) (float64, float64) {
 	return mid + side, mid - side
 }
 
-func (m *ModPlayer) Play(mo *mod.PTModule, stereoSep int) {
-	m.player = m.ctx.NewPlayer(NewModReader(mo, stereoSep))
+func (m *ModPlayer) Play(mo *mod.PTModule, stereoSep int, filter bool) {
+	m.player = m.ctx.NewPlayer(NewModReader(mo, stereoSep, filter))
 	m.player.Play()
 }
 

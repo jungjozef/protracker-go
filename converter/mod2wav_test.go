@@ -51,7 +51,7 @@ func buildTestModule() *mod.PTModule {
 
 func TestConvert_WAVHeader(t *testing.T) {
 	m := buildTestModule()
-	conv := NewMod2Wav(Stereo, 50)
+	conv := NewMod2Wav(Stereo, 50, false)
 
 	wav, err := conv.Convert(m)
 	if err != nil {
@@ -88,7 +88,7 @@ func TestConvert_WAVHeader(t *testing.T) {
 
 func TestConvert_Duration(t *testing.T) {
 	m := buildTestModule()
-	conv := NewMod2Wav(Stereo, 50)
+	conv := NewMod2Wav(Stereo, 50, false)
 
 	wav, err := conv.Convert(m)
 	if err != nil {
@@ -110,7 +110,7 @@ func TestConvert_Duration(t *testing.T) {
 
 func TestConvert_Mono(t *testing.T) {
 	m := buildTestModule()
-	conv := NewMod2Wav(Mono, 0)
+	conv := NewMod2Wav(Mono, 0, false)
 
 	wav, err := conv.Convert(m)
 	if err != nil {
@@ -126,7 +126,7 @@ func TestConvert_Mono(t *testing.T) {
 
 func TestConvert_Stereo(t *testing.T) {
 	m := buildTestModule()
-	conv := NewMod2Wav(Stereo, 100)
+	conv := NewMod2Wav(Stereo, 100, false)
 
 	wav, err := conv.Convert(m)
 	if err != nil {
@@ -159,7 +159,7 @@ func TestE6x_PatternLoop(t *testing.T) {
 		EffectData:    0x62, // E62 — loop 2 times
 	}
 
-	conv := NewMod2Wav(Stereo, 50)
+	conv := NewMod2Wav(Stereo, 50, false)
 
 	wavBase, err := conv.Convert(base)
 	if err != nil {
@@ -184,7 +184,7 @@ func TestE6x_PatternLoop(t *testing.T) {
 
 func TestConvert_NotSilent(t *testing.T) {
 	m := buildTestModule()
-	conv := NewMod2Wav(Stereo, 50)
+	conv := NewMod2Wav(Stereo, 50, false)
 
 	wav, err := conv.Convert(m)
 	if err != nil {

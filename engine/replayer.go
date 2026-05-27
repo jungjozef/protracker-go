@@ -1,6 +1,10 @@
 package engine
 
-import "protracker-go/mod"
+import (
+	"math"
+
+	"protracker-go/mod"
+)
 
 const (
 	paulaPalClk = 3_546_895.0 // Amiga PAL master clock Hz
@@ -100,6 +104,12 @@ type ReplayerState struct {
 	patternLoopJump bool // signals advanceRow to jump to loopStartRow
 
 	Done bool
+
+	// FilterEnabled toggles the Amiga hardware low-pass filter (~4.4 kHz cutoff).
+	// Off by default; set before first RenderTick call.
+	FilterEnabled bool
+	filterL       float64 // one-pole IIR state, left channel
+	filterR       float64 // one-pole IIR state, right channel
 }
 
 func NewReplayerState(m *mod.PTModule) *ReplayerState {
@@ -183,6 +193,7 @@ func RenderTick(r *ReplayerState) []float64 {
 				continue
 			}
 
+			frac := v.phase - float64(int(v.phase)) // fractional position for interpolation
 			pos := int(v.phase)
 
 			// Handle repeat / end of sample
@@ -192,7 +203,7 @@ func RenderTick(r *ReplayerState) []float64 {
 				if pos >= loopEnd {
 					excess := pos - loopEnd
 					pos = loopStart + (excess % int(v.sample.RepeatLength))
-					v.phase = float64(pos) + (v.phase - float64(int(v.phase)))
+					v.phase = float64(pos) + frac
 				}
 			} else {
 				if pos >= len(v.sample.Data) {
@@ -206,8 +217,27 @@ func RenderTick(r *ReplayerState) []float64 {
 				continue
 			}
 
-			// Amiga sample data is signed 8-bit
-			raw := float64(int8(v.sample.Data[pos])) / 128.0
+			// Next sample position for linear interpolation (respects loop boundary).
+			var nextPos int
+			if v.repeatActive {
+				loopStart := int(v.sample.RepeatStart)
+				loopEnd := loopStart + int(v.sample.RepeatLength)
+				nextPos = pos + 1
+				if nextPos >= loopEnd {
+					nextPos = loopStart
+				}
+			} else {
+				nextPos = pos + 1
+				if nextPos >= len(v.sample.Data) {
+					nextPos = pos // clamp at end of one-shot sample
+				}
+			}
+
+			// Linear interpolation between adjacent samples reduces aliasing
+			// when delta > 1 (high pitch / fast playback).
+			s0 := float64(int8(v.sample.Data[pos])) / 128.0
+			s1 := float64(int8(v.sample.Data[nextPos])) / 128.0
+			raw := s0 + frac*(s1-s0)
 			sample := raw * v.volume
 
 			// Amiga hardware panning: ch 0,2 → left; ch 1,3 → right
@@ -218,6 +248,16 @@ func RenderTick(r *ReplayerState) []float64 {
 			}
 
 			v.phase += v.delta
+		}
+
+		// Amiga hardware low-pass filter (~4.4 kHz cutoff, one-pole IIR).
+		// Coefficient: exp(-2π * 4413 / 44100) ≈ 0.5338
+		if r.FilterEnabled {
+			const a = 0.5338
+			left = (1-a)*left + a*r.filterL
+			right = (1-a)*right + a*r.filterR
+			r.filterL = left
+			r.filterR = right
 		}
 
 		out[i*2] = left
@@ -319,6 +359,28 @@ func advanceRow(r *ReplayerState) {
 	}
 }
 
+// applyFineTune adjusts a Paula period by a sample's fine-tune nibble.
+//
+// Fine-tune is a signed 4-bit value stored as 0–15:
+//
+//	0       = no adjustment
+//	1–7     = raise pitch by 1/8 to 7/8 semitone (lower period)
+//	8–15    = lower pitch by 8/8 to 1/8 semitone (higher period), i.e. -8 to -1
+//
+// Formula: period * 2^(-ft/96), where ft is the signed value.
+// Positive ft raises pitch → smaller period; negative ft lowers pitch → larger period.
+func applyFineTune(period uint16, fineTune byte) uint16 {
+	ft := int(fineTune & 0x0F)
+	if ft == 0 {
+		return period
+	}
+	if ft > 7 {
+		ft -= 16 // 8→-8, 9→-7, …, 15→-1
+	}
+	adjusted := float64(period) * math.Pow(2.0, float64(-ft)/96.0)
+	return clampPeriod(uint16(math.Round(adjusted)))
+}
+
 // triggerNote sets up a voice from a parsed note at tick 0.
 // Rules per ProTracker spec:
 //   - Value==0, SampleNumber==0 → keep playing, only apply effect
@@ -344,6 +406,9 @@ func triggerNote(v *voiceState, n mod.Note, samples []mod.SampleData) {
 
 	if n.Value > 0 {
 		period := clampPeriod(n.Value)
+		if v.sample != nil {
+			period = applyFineTune(period, v.sample.FineTune)
+		}
 
 		if isPorta {
 			// Tone portamento: slide toward this period, do not retrigger

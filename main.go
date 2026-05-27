@@ -15,6 +15,7 @@ func main() {
 	inputFilename := flag.String("input", "", "Input MOD filename")
 	outputFilename := flag.String("output", "", "Output WAV filename (convert mode only; default: input + .wav)")
 	stereoSep := flag.Int("stereo-sep", 30, "Stereo separation 0–100 (0=mono mix, 100=full Amiga hard pan)")
+	filter := flag.Bool("filter", false, "Enable Amiga hardware low-pass filter (~4.4 kHz cutoff)")
 	mode := flag.String("mode", "play", "Mode: play or convert")
 	flag.Parse()
 
@@ -36,18 +37,18 @@ func main() {
 
 	switch *mode {
 	case "play":
-		fmt.Printf("Playing: %s  stereo-sep=%d\n", *inputFilename, *stereoSep)
+		fmt.Printf("Playing: %s  stereo-sep=%d  filter=%v\n", *inputFilename, *stereoSep, *filter)
 		rp := player.ModPlayer{}
 		rp.Init()
-		rp.Play(m, *stereoSep)
+		rp.Play(m, *stereoSep, *filter)
 		rp.Wait()
 
 	case "convert":
 		if *outputFilename == "" {
 			*outputFilename = *inputFilename + ".wav"
 		}
-		fmt.Printf("Converting: %s → %s  stereo-sep=%d\n", *inputFilename, *outputFilename, *stereoSep)
-		c := converter.NewMod2Wav(converter.Stereo, *stereoSep)
+		fmt.Printf("Converting: %s → %s  stereo-sep=%d  filter=%v\n", *inputFilename, *outputFilename, *stereoSep, *filter)
+		c := converter.NewMod2Wav(converter.Stereo, *stereoSep, *filter)
 		wav, err := c.Convert(m)
 		if err != nil {
 			panic(err)

@@ -8,7 +8,7 @@ protracker-go/           ← module "protracker-go"
   loader/                ← binary MOD parser
   engine/                ← core render engine (format-agnostic)
   converter/             ← WAV output (depends on engine)
-  main.go                ← CLI: --mode play|convert
+  main.go                ← CLI: -mode play|convert
 
 player/                  ← module "protracker-player" (go.work sibling)
   player.go              ← real-time audio output via oto v3
@@ -40,12 +40,18 @@ loop: engine.RenderTick(*ReplayerState)
   - tick N: `applyEffectTickN()` per voice
   - CIA-precise timing: fractional `tickSampleAccum` avoids integer drift
   - Amiga hardware panning: ch 0,2 → left; ch 1,3 → right
+  - Linear interpolation between adjacent samples (reduces aliasing at high pitch)
+  - Optional low-pass filter: one-pole IIR, ~4.4 kHz cutoff, set `r.FilterEnabled = true`
+- `applyFineTune(period, fineTune)` — adjusts period at note trigger; signed 4-bit, ±1/8 semitone steps
 - Key constants: `paulaPalClk=3_546_895`, `OutputRate=44_100`, `minPeriod=113`, `maxPeriod=907`
+- Exported: `OutputRate`, `DefaultBPM`, `DefaultSpeed`, `CalcTickSamples()`
 
 **`effects.go`** — ProTracker effect handlers
 
 - `applyEffectTick0(v, n, r)` — tick-0: set state (porta target, vibrato params, volume, …)
 - `applyEffectTickN(v, n, tick)` — tick N: mutate period/volume each tick
+
+See [effects.md](effects.md) for full effect list.
 
 ## mod/
 
@@ -61,6 +67,8 @@ loop: engine.RenderTick(*ReplayerState)
 
 `Mod2Wav.Convert(*mod.PTModule) ([]byte, error)` — drives RenderTick loop, applies mid/side stereo separation, encodes RIFF/WAV.
 
+`NewMod2Wav(chNum ChannelNum, stereoSep int, filter bool)`
+
 Stereo separation (mid/side):
 ```
 mid  = (L + R) * 0.5
@@ -73,10 +81,10 @@ sep=0 → mono mix; sep=100 → full Amiga hard pan.
 ## player/ (module: protracker-player)
 
 `ModPlayer.Init()` — creates oto context (44100 Hz, stereo, int16 LE).  
-`ModPlayer.Play(*mod.PTModule, stereoSep)` — wraps ReplayerState in `ModReader` (io.Reader), hands to oto.  
+`ModPlayer.Play(mo *mod.PTModule, stereoSep int, filter bool)` — wraps `ReplayerState` in `ModReader` (io.Reader), hands to oto.  
 `ModPlayer.Wait()` — blocks until playback ends; also holds `*oto.Player` reference to prevent GC cleanup.
 
-**GC note:** oto v3 uses `runtime.AddCleanup` on its player. If the `*oto.Player` becomes unreachable, GC collects it and the cleanup calls `Close()` → silence. `Wait()` keeps it alive.
+**GC note:** oto v3 uses `runtime.AddCleanup` on its player. If `*oto.Player` becomes unreachable, GC collects it and cleanup calls `Close()` → silence. `Wait()` keeps it alive.
 
 ## go.work
 
