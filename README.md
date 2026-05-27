@@ -10,7 +10,7 @@ Amiga ProTracker MOD player and converter in Go.
 - Stereo output with configurable mid/side separation
 - Full ProTracker effect set (0xx–Fxx) — see [docs/effects.md](docs/effects.md)
 - Fine-tune support (signed 4-bit per sample)
-- Linear sample interpolation (reduces aliasing at high pitch)
+- BLEP anti-aliasing (band-limited step, removes loop/end-of-sample click artifacts)
 - Optional Amiga hardware low-pass filter (~4.4 kHz, toggle with `-filter`)
 
 ## Usage

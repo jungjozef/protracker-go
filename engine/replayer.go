@@ -18,7 +18,93 @@ const (
 	OutputRate   = 44_100.0 // render/WAV sample rate Hz
 	DefaultBPM   = 125
 	DefaultSpeed = 6
+
+	// BLEP (Band-Limited stEP) anti-aliasing parameters.
+	// blepOversample sub-sample positions × blepLen output samples = table size.
+	blepOversample = 8
+	blepLen        = 8
 )
+
+// blepResidual is the MinBLEP correction table.
+// Layout: blepResidual[fracIdx + sampleIdx*blepOversample]
+//
+//	fracIdx   — sub-sample position of step (0 = start, blepOversample-1 = end of sample period)
+//	sampleIdx — output sample index after the step (0 = first affected sample)
+//
+// For a unit step at fractional position frac, add
+// diff * blepResidual[fracIdx + k*blepOversample] to output sample k.
+var blepResidual [blepLen * blepOversample]float64
+
+func init() {
+	computeBLEPTable()
+}
+
+// computeBLEPTable fills blepResidual using a Blackman-windowed sinc.
+//
+// Method:
+//  1. Build a symmetric windowed sinc of length 2*blepLen*blepOversample.
+//  2. Integrate (cumulative sum) and normalise to get a step response in [0, 1].
+//  3. The causal residual starting at the step midpoint = step_response[mid+i] - 1.
+//     Indexed by (fracIdx, sampleIdx) so the caller can select the right column
+//     for the sub-sample position of the crossing.
+func computeBLEPTable() {
+	n := 2 * blepLen * blepOversample // full symmetric table length
+
+	// Blackman-windowed sinc centred at n/2
+	h := make([]float64, n)
+	for i := 0; i < n; i++ {
+		x := float64(i-n/2) / float64(blepOversample) // distance from centre in output-sample units
+		var sinc float64
+		if x == 0 {
+			sinc = 1.0
+		} else {
+			sinc = math.Sin(math.Pi*x) / (math.Pi * x)
+		}
+		t := float64(i) / float64(n-1)
+		window := 0.42 - 0.5*math.Cos(2*math.Pi*t) + 0.08*math.Cos(4*math.Pi*t)
+		h[i] = sinc * window
+	}
+
+	// Cumulative integral → step response; normalise so it converges to 1.
+	step := make([]float64, n+1)
+	for i := 0; i < n; i++ {
+		step[i+1] = step[i] + h[i]
+	}
+	if total := step[n]; total != 0 {
+		for i := range step {
+			step[i] /= total
+		}
+	}
+
+	// Residual for the causal (second) half of the table.
+	// step[n/2] ≈ 0.5, so blepResidual[fracIdx=0, sampleIdx=0] ≈ 0.5 - 1 = -0.5.
+	mid := n / 2
+	for fracIdx := 0; fracIdx < blepOversample; fracIdx++ {
+		for k := 0; k < blepLen; k++ {
+			p := mid + fracIdx + k*blepOversample
+			if p < len(step) {
+				blepResidual[fracIdx+k*blepOversample] = step[p] - 1.0
+			}
+		}
+	}
+}
+
+// injectBLEP adds a scaled BLEP residual to the voice's correction buffer.
+//
+//	diff — step height in normalised sample space (loopStart_value - loopEnd_value)
+//	frac — fractional position of the step within the current output sample (0=start, 1=end)
+func injectBLEP(v *voiceState, diff, frac float64) {
+	if diff == 0 {
+		return
+	}
+	fracIdx := int(frac * float64(blepOversample))
+	if fracIdx >= blepOversample {
+		fracIdx = blepOversample - 1
+	}
+	for k := 0; k < blepLen; k++ {
+		v.blepBuf[k] += diff * blepResidual[fracIdx+k*blepOversample]
+	}
+}
 
 // sineTable is a 64-entry sine LUT scaled to 0–255, used for vibrato.
 var sineTable = [64]int{
@@ -72,6 +158,9 @@ type voiceState struct {
 
 	// repeat state
 	repeatActive bool
+
+	// BLEP anti-aliasing: pending per-sample corrections from detected discontinuities.
+	blepBuf [blepLen]float64
 }
 
 // ReplayerState is the full state of the offline renderer.
@@ -193,23 +282,25 @@ func RenderTick(r *ReplayerState) []float64 {
 				continue
 			}
 
-			frac := v.phase - float64(int(v.phase)) // fractional position for interpolation
 			pos := int(v.phase)
 
-			// Handle repeat / end of sample
+			// Defensive boundary check (phase should always be wrapped from previous iter,
+			// but guard against edge cases at voice init time).
 			if v.repeatActive {
 				loopStart := int(v.sample.RepeatStart)
 				loopEnd := loopStart + int(v.sample.RepeatLength)
 				if pos >= loopEnd {
-					excess := pos - loopEnd
-					pos = loopStart + (excess % int(v.sample.RepeatLength))
-					v.phase = float64(pos) + frac
+					excess := v.phase - float64(loopEnd)
+					m := math.Mod(excess, float64(v.sample.RepeatLength))
+					if m < 0 {
+						m += float64(v.sample.RepeatLength)
+					}
+					v.phase = float64(loopStart) + m
+					pos = int(v.phase)
 				}
-			} else {
-				if pos >= len(v.sample.Data) {
-					v.active = false
-					continue
-				}
+			} else if pos >= len(v.sample.Data) {
+				v.active = false
+				continue
 			}
 
 			if pos < 0 || pos >= len(v.sample.Data) {
@@ -217,37 +308,70 @@ func RenderTick(r *ReplayerState) []float64 {
 				continue
 			}
 
-			// Next sample position for linear interpolation (respects loop boundary).
-			var nextPos int
-			if v.repeatActive {
-				loopStart := int(v.sample.RepeatStart)
-				loopEnd := loopStart + int(v.sample.RepeatLength)
-				nextPos = pos + 1
-				if nextPos >= loopEnd {
-					nextPos = loopStart
-				}
-			} else {
-				nextPos = pos + 1
-				if nextPos >= len(v.sample.Data) {
-					nextPos = pos // clamp at end of one-shot sample
-				}
-			}
+			// Read raw sample. BLEP correction handles discontinuity smoothing
+			// at loop-wrap and end-of-sample boundaries.
+			raw := float64(int8(v.sample.Data[pos])) / 128.0
 
-			// Linear interpolation between adjacent samples reduces aliasing
-			// when delta > 1 (high pitch / fast playback).
-			s0 := float64(int8(v.sample.Data[pos])) / 128.0
-			s1 := float64(int8(v.sample.Data[nextPos])) / 128.0
-			raw := s0 + frac*(s1-s0)
-			sample := raw * v.volume
+			// Apply BLEP correction accumulated from the previous crossing event.
+			raw += v.blepBuf[0]
+			copy(v.blepBuf[:], v.blepBuf[1:])
+			v.blepBuf[blepLen-1] = 0
 
 			// Amiga hardware panning: ch 0,2 → left; ch 1,3 → right
+			sample := raw * v.volume
 			if ch == 0 || ch == 2 {
 				left += sample
 			} else {
 				right += sample
 			}
 
+			// Advance phase, then detect discontinuities and inject BLEP residuals.
+			oldPhase := v.phase
 			v.phase += v.delta
+
+			if v.repeatActive {
+				loopStart := int(v.sample.RepeatStart)
+				loopEnd := loopStart + int(v.sample.RepeatLength)
+				if int(v.phase) >= loopEnd {
+					// Fractional crossing position within this output sample period.
+					frac := (float64(loopEnd) - oldPhase) / v.delta
+					if frac < 0 {
+						frac = 0
+					} else if frac > 1 {
+						frac = 1
+					}
+
+					// Step height: loopStart value minus the last value before loopEnd.
+					endPos := loopEnd - 1
+					if endPos >= len(v.sample.Data) {
+						endPos = len(v.sample.Data) - 1
+					}
+					diff := float64(int8(v.sample.Data[loopStart]))/128.0 -
+						float64(int8(v.sample.Data[endPos]))/128.0
+					injectBLEP(v, diff, frac)
+
+					// Wrap phase back into [loopStart, loopEnd).
+					excess := v.phase - float64(loopEnd)
+					m := math.Mod(excess, float64(v.sample.RepeatLength))
+					if m < 0 {
+						m += float64(v.sample.RepeatLength)
+					}
+					v.phase = float64(loopStart) + m
+				}
+			} else if int(v.phase) >= len(v.sample.Data) {
+				// End of one-shot sample: inject BLEP for the step to silence.
+				lastPos := len(v.sample.Data) - 1
+				if lastPos >= 0 {
+					frac := (float64(len(v.sample.Data)) - oldPhase) / v.delta
+					if frac < 0 {
+						frac = 0
+					} else if frac > 1 {
+						frac = 1
+					}
+					injectBLEP(v, -float64(int8(v.sample.Data[lastPos]))/128.0, frac)
+				}
+				v.active = false
+			}
 		}
 
 		// Amiga hardware low-pass filter (~4.4 kHz cutoff, one-pole IIR).
